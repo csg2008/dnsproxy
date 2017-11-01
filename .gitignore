@@ -1,0 +1,11 @@
+# Binaries for programs and plugins
+*.exe
+*.log
+*.dll
+*.so
+*.db
+*.dylib
+*.test
+.glide/
+
+bin/dnsproxy
