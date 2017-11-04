@@ -76,7 +76,7 @@ func (s *HTTPServer) resolveDNS(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		var queryName = req.FormValue("name")
+		var queryName = req.FormValue("hosts")
 		var queryType, err = strconv.Atoi(req.FormValue("type"))
 		if err != nil {
 			queryType = 255
