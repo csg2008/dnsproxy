@@ -151,13 +151,19 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 	var cnt = len(s.config.Forwarders[group])
 	var ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond*500)
 
-	defer close(respChan)
+	defer func() {
+		close(respChan)
+		cancel()
+	}()
+
 	for i := 0; i < s.config.Concurrency; i++ {
 		idx = (idx + i) % cnt
 
 		go func(ctx context.Context, addr string) {
 			var resp, rtt, err = s.client.ExchangeContext(ctx, req, addr)
 			if nil == err && !flag {
+				flag = true
+
 				var ttl = int64(rtt.Seconds())
 				if ttl < s.cache.MinTTL {
 					ttl = s.cache.MinTTL
@@ -171,7 +177,6 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 					Expire: time.Now().Unix() + ttl,
 				}
 
-				flag = true
 				respChan <- msg
 			} else if nil != err {
 				s.Logger.Write(LevelError, " [E] client %s query %s error: %s\n", src, s.toJSON(req.Question), err.Error())
@@ -181,8 +186,6 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 
 	select {
 	case msg = <-respChan:
-		cancel()
-
 		err = nil
 		resp = msg.Msg
 		if len(req.Question) > 0 {
@@ -193,8 +196,6 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 			s.Logger.Write(LevelRaw, " [T] client %s query remote %s with result %s\n", src, s.toJSON(req.Question), s.toJSON(resp.Answer))
 		}
 	case <-ctx.Done():
-		cancel()
-
 		err = ErrCacheTimeout
 	}
 
