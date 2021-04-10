@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -127,7 +128,6 @@ func (s *Service) Reset() {
 
 // Query dns request
 func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
-	// 错误捕获
 	defer func() {
 		if err := recover(); err != nil {
 			s.Logger.Write(LevelEmergency, " [E] client %s trigger panic %v\n", src, err)
@@ -135,20 +135,19 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 	}()
 
 	var resp, err = s.getFromCache(req)
-	if err == nil {
-		if s.config.Logger.Access {
-			s.Logger.Write(LevelRaw, " [T] client %s query cache %s with result %s\n", src, s.toJSON(req.Question), s.toJSON(resp.Answer))
-		}
-
-		return resp, err
+	if err == nil && s.config.Logger.Access {
+		s.Logger.Write(LevelRaw, " [T] client %s query cache %s with result %s\n", src, s.toJSON(req.Question), s.toJSON(resp.Answer))
+	} else if ErrNotFound == err {
+		resp, err = s.getFromNet(src, req)
 	}
 
-	return s.getFromNet(src, req)
+	return resp, err
 }
 
 func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 	var err error
 	var flag bool
+	var cKey string
 	var msg *DNSMsg
 	var resp *dns.Msg
 	var idx = s.config.Rand.Int()
@@ -181,7 +180,9 @@ func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 		err = nil
 		resp = msg.Msg
 		if len(req.Question) > 0 {
-			s.cache.Set(req.Question[0].String(), msg)
+			cKey = req.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Question[0].Qtype), 10)
+
+			s.cache.Set(cKey, msg)
 		}
 
 		if s.config.Logger.Access {
@@ -249,12 +250,14 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 		resp, err = s.getDnsMapper((req))
 	}
 
-	if nil == resp && ErrNotTypeAAAA != err {
-		var msg, ok = s.cache.Get(req.Question[0].String())
+	if nil == resp || ErrNotFound == err {
+		var cKey = req.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Question[0].Qtype), 10)
+		var msg, ok = s.cache.Get(cKey)
 		if ok && nil != msg {
 			resp = new(dns.Msg)
 			*resp = *msg
 			resp.Id = req.Id
+			err = nil
 		} else {
 			err = ErrNotFound
 		}
@@ -293,6 +296,7 @@ func (s *Service) getDnsPtr(req *dns.Msg) (*dns.Msg, error) {
 }
 
 func (s *Service) getDnsMapper(req *dns.Msg) (*dns.Msg, error) {
+	var resp *dns.Msg
 	var domain = strings.Trim(strings.TrimRight(strings.ToLower(req.Question[0].Name), "dhcp\\ host."), ".")
 	var sub = strings.Split(domain, ".")
 	var cnt = len(sub)
@@ -315,7 +319,7 @@ func (s *Service) getDnsMapper(req *dns.Msg) (*dns.Msg, error) {
 
 			if flag {
 				if dns.TypeA == req.Question[0].Qtype {
-					var resp = &dns.Msg{
+					resp = &dns.Msg{
 						Question: req.Question,
 						Answer: []dns.RR{
 							&dns.A{
@@ -330,17 +334,20 @@ func (s *Service) getDnsMapper(req *dns.Msg) (*dns.Msg, error) {
 							},
 						},
 					}
-
-					resp.Id = req.Id
-
-					return resp, nil
+				} else {
+					resp = &dns.Msg{
+						Question: req.Question,
+						Answer:   []dns.RR{},
+					}
 				}
 
-				return nil, ErrNotTypeAAAA
+				resp.Id = req.Id
+
+				return resp, nil
 			}
 
 			idx++
-			if idx+1 == cnt {
+			if flag || idx+1 == cnt {
 				break
 			}
 		}
