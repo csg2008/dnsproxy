@@ -222,66 +222,93 @@ func (s *Service) getDomainForwarder(domain string) string {
 
 // getFromCache query dns from cache
 func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
+	var err error
 	var resp *dns.Msg
 
 	// check query ptr
 	if nil != s.ptr && dns.TypePTR == req.Question[0].Qtype && dns.ClassINET == req.Question[0].Qclass {
-		for _, v := range s.ptr {
-			if v == req.Question[0].Name {
-				resp = &dns.Msg{
-					Question: req.Question,
-					Answer: []dns.RR{
-						&dns.PTR{
-							Hdr: dns.RR_Header{
-								Name:     req.Question[0].Name,
-								Rrtype:   req.Question[0].Qtype,
-								Class:    req.Question[0].Qclass,
-								Ttl:      uint32(s.cache.MinTTL),
-								Rdlength: uint16(strings.Count(s.config.Name, "")),
-							},
-							Ptr: s.config.Name,
-						},
-					},
-				}
-
-				resp.Rcode = dns.RcodeSuccess
-				resp.Id = req.Id
-				return resp, nil
-			}
-		}
+		resp, err = s.getDnsPtr((req))
 	}
 
 	// check query host is mapper
-	if nil != s.mapper && dns.TypeA == req.Question[0].Qtype && dns.ClassINET == req.Question[0].Qclass {
-		var domain = strings.Trim(strings.TrimRight(strings.ToLower(req.Question[0].Name), "dhcp\\ host."), ".")
-		var sub = strings.Split(domain, ".")
-		var cnt = len(sub)
-		var key = sub[cnt-2] + "." + sub[cnt-1]
+	if nil != s.mapper && (dns.TypeA == req.Question[0].Qtype || dns.TypeAAAA == req.Question[0].Qtype) && dns.ClassINET == req.Question[0].Qclass {
+		resp, err = s.getDnsMapper((req))
+	}
 
-		if items, ok := s.mapper[key]; ok {
-			var idx int
-			var flag bool
-			var host net.IP
-			var tmp string
+	if ErrNotFound == err && nil == resp {
+		var msg, ok = s.cache.Get(req.Question[0].String())
+		if ok && nil != msg {
+			resp = new(dns.Msg)
+			*resp = *msg
+			resp.Id = req.Id
+		} else {
+			err = ErrNotFound
+		}
+	}
 
-			for {
-				tmp = strings.Join(sub[idx:cnt], ".")
+	return resp, err
+}
 
-				if host, ok = items[tmp]; ok {
-					flag = true
-				} else if host, ok = items["."+tmp]; ok {
-					flag = true
-				}
+func (s *Service) getDnsPtr(req *dns.Msg) (*dns.Msg, error) {
+	for _, v := range s.ptr {
+		if v == req.Question[0].Name {
+			var resp = &dns.Msg{
+				Question: req.Question,
+				Answer: []dns.RR{
+					&dns.PTR{
+						Hdr: dns.RR_Header{
+							Name:     req.Question[0].Name,
+							Rrtype:   req.Question[0].Qtype,
+							Class:    req.Question[0].Qclass,
+							Ttl:      uint32(s.cache.MinTTL),
+							Rdlength: uint16(strings.Count(s.config.Name, "")),
+						},
+						Ptr: s.config.Name,
+					},
+				},
+			}
 
-				if flag {
-					resp = &dns.Msg{
+			resp.Rcode = dns.RcodeSuccess
+			resp.Id = req.Id
+
+			return resp, nil
+		}
+	}
+
+	return nil, ErrNotFound
+}
+
+func (s *Service) getDnsMapper(req *dns.Msg) (*dns.Msg, error) {
+	var domain = strings.Trim(strings.TrimRight(strings.ToLower(req.Question[0].Name), "dhcp\\ host."), ".")
+	var sub = strings.Split(domain, ".")
+	var cnt = len(sub)
+	var key = sub[cnt-2] + "." + sub[cnt-1]
+
+	if items, ok := s.mapper[key]; ok {
+		var idx int
+		var flag bool
+		var host net.IP
+		var tmp string
+
+		for {
+			tmp = strings.Join(sub[idx:cnt], ".")
+
+			if host, ok = items[tmp]; ok {
+				flag = true
+			} else if host, ok = items["."+tmp]; ok {
+				flag = true
+			}
+
+			if flag {
+				if dns.TypeA == req.Question[0].Qtype {
+					var resp = &dns.Msg{
 						Question: req.Question,
 						Answer: []dns.RR{
 							&dns.A{
 								Hdr: dns.RR_Header{
 									Name:     domain + ".",
-									Rrtype:   0x1,
-									Class:    0x1,
+									Rrtype:   dns.TypeA,
+									Class:    req.Question[0].Qclass,
 									Ttl:      uint32(s.cache.MinTTL),
 									Rdlength: 0x4,
 								},
@@ -291,27 +318,21 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 					}
 
 					resp.Id = req.Id
+
 					return resp, nil
 				}
 
-				idx++
-				if idx+1 == cnt {
-					break
-				}
+				return nil, ErrNotTypeAAAA
+			}
+
+			idx++
+			if idx+1 == cnt {
+				break
 			}
 		}
 	}
 
-	var msg, ok = s.cache.Get(req.Question[0].String())
-	if !ok || nil == msg {
-		return nil, ErrNotFound
-	}
-
-	resp = new(dns.Msg)
-	*resp = *msg
-	resp.Id = req.Id
-
-	return resp, nil
+	return nil, ErrNotFound
 }
 
 // toJSON convert values to json byte

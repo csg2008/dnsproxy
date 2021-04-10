@@ -8,6 +8,9 @@ var provider map[string]ProxyHandle
 // ErrNotFound dns cache key not found
 var ErrNotFound = errors.New("cache key is not found")
 
+// ErrNotTypeAAA mapper domain no has TypeAAAA record
+var ErrNotTypeAAAA = errors.New("domain not TypeAAAA record")
+
 // ErrCacheTimeout dns cache timeout
 var ErrCacheTimeout = errors.New("remote cache timeout")
 
@@ -53,7 +56,7 @@ var page = []byte(`
 			}
 		</script>
 	</head>
-	
+
 	<body>
 		<form>
 			<div style="background:#808080;size:10px;">
@@ -76,7 +79,7 @@ var page = []byte(`
 		<br />
 		<pre id="json"></pre>
 	</body>
-	
+
 	</html>
 `)
 
