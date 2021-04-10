@@ -235,7 +235,7 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 		resp, err = s.getDnsMapper((req))
 	}
 
-	if ErrNotFound == err && nil == resp {
+	if nil == resp && ErrNotTypeAAAA != err {
 		var msg, ok = s.cache.Get(req.Question[0].String())
 		if ok && nil != msg {
 			resp = new(dns.Msg)
