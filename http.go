@@ -102,7 +102,7 @@ func (s *HTTPServer) resolveDNS(w http.ResponseWriter, req *http.Request) {
 
 		if retByte, err := json.Marshal(retJSON); err != nil {
 			w.Write([]byte("{\"code\":1003, \"message\":\"serialize query result failed, " + err.Error() + "\"}"))
-			s.service.Logger.Write(LevelError, " [E] client %s serialize query result failed: %v\n", req.RemoteAddr, msg, err)
+			s.service.Logger.Write(LevelError, " [E] client %s serialize query %v result failed: %v\n", req.RemoteAddr, msg, err)
 		} else {
 			w.Write(retByte)
 		}

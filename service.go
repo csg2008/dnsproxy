@@ -225,7 +225,7 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 	var resp *dns.Msg
 
 	// check query ptr
-	if nil != s.ptr && 0xc == req.Question[0].Qtype && 0x1 == req.Question[0].Qclass {
+	if nil != s.ptr && dns.TypePTR == req.Question[0].Qtype && dns.ClassINET == req.Question[0].Qclass {
 		for _, v := range s.ptr {
 			if v == req.Question[0].Name {
 				resp = &dns.Msg{
@@ -252,7 +252,7 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 	}
 
 	// check query host is mapper
-	if nil != s.mapper && 1 == req.Question[0].Qtype && 1 == req.Question[0].Qclass {
+	if nil != s.mapper && dns.TypeA == req.Question[0].Qtype && dns.ClassINET == req.Question[0].Qclass {
 		var domain = strings.Trim(strings.TrimRight(strings.ToLower(req.Question[0].Name), "dhcp\\ host."), ".")
 		var sub = strings.Split(domain, ".")
 		var cnt = len(sub)
