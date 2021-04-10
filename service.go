@@ -143,8 +143,14 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 		return resp, err
 	}
 
+	return s.getFromNet(src, req)
+}
+
+func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
+	var err error
 	var flag bool
 	var msg *DNSMsg
+	var resp *dns.Msg
 	var idx = s.config.Rand.Int()
 	var respChan = make(chan *DNSMsg, s.config.Concurrency)
 	var group = s.getDomainForwarder(req.Question[0].Name)
@@ -160,24 +166,10 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 		idx = (idx + i) % cnt
 
 		go func(ctx context.Context, addr string) {
-			var resp, rtt, err = s.client.ExchangeContext(ctx, req, addr)
+			var m, err = s.getDnsRecord(ctx, req, addr)
 			if nil == err && !flag {
 				flag = true
-
-				var ttl = int64(rtt.Seconds())
-				if ttl < s.cache.MinTTL {
-					ttl = s.cache.MinTTL
-				}
-				if ttl > s.cache.MaxTTL {
-					ttl = s.cache.MaxTTL
-				}
-
-				var msg = &DNSMsg{
-					Msg:    resp,
-					Expire: time.Now().Unix() + ttl,
-				}
-
-				respChan <- msg
+				respChan <- m
 			} else if nil != err {
 				s.Logger.Write(LevelError, " [E] client %s query %s error: %s\n", src, s.toJSON(req.Question), err.Error())
 			}
@@ -218,6 +210,28 @@ func (s *Service) getDomainForwarder(domain string) string {
 	}
 
 	return ret
+}
+
+func (s *Service) getDnsRecord(ctx context.Context, req *dns.Msg, addr string) (*DNSMsg, error) {
+	var resp, rtt, err = s.client.ExchangeContext(ctx, req, addr)
+	if nil == err {
+		var ttl = int64(rtt.Seconds())
+		if ttl < s.cache.MinTTL {
+			ttl = s.cache.MinTTL
+		}
+		if ttl > s.cache.MaxTTL {
+			ttl = s.cache.MaxTTL
+		}
+
+		var msg = &DNSMsg{
+			Msg:    resp,
+			Expire: time.Now().Unix() + ttl,
+		}
+
+		return msg, nil
+	}
+
+	return nil, err
 }
 
 // getFromCache query dns from cache
