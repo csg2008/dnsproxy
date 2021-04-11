@@ -7,8 +7,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-// DNSMsg DNS cache message
-type DNSMsg struct {
+// CacheItem DNS cache message item
+type CacheItem struct {
 	Hit    int64    `label:"query cache hit count"`
 	Expire int64    `label:"dns query result cache exprice, zero is never expire"`
 	Msg    *dns.Msg `label:"dns query result"`
@@ -17,11 +17,11 @@ type DNSMsg struct {
 // Cache memory base dns query cache
 // TODO 计划要添加一个后台线程，对查询次数多的进行后台更新来加速整体性能
 type Cache struct {
-	MaxCount int                `label:"number of dns query cache item, zero is not limit"`
-	MinTTL   int64              `label:"min cache time, zero is not limit"`
-	MaxTTL   int64              `label:"max cache time, zero is not limit"`
-	mu       *sync.RWMutex      `label:"query cache read & write lock"`
-	backend  map[string]*DNSMsg `label:"dns query cache store"`
+	MaxCount int                   `label:"number of dns query cache item, zero is not limit"`
+	MinTTL   int64                 `label:"min cache time, zero is not limit"`
+	MaxTTL   int64                 `label:"max cache time, zero is not limit"`
+	mu       *sync.RWMutex         `label:"query cache read & write lock"`
+	backend  map[string]*CacheItem `label:"dns query cache store"`
 }
 
 // Get get query cache
@@ -39,11 +39,10 @@ func (c *Cache) Get(key string) (*dns.Msg, bool) {
 	}
 
 	return msg.Msg, true
-
 }
 
 // Set Set query cache
-func (c *Cache) Set(key string, msg *DNSMsg) bool {
+func (c *Cache) Set(key string, msg *CacheItem) bool {
 	if c.Full() {
 		return false
 	}
@@ -65,7 +64,7 @@ func (c *Cache) Remove(key string) {
 // Reset reset dns query cache result
 func (c *Cache) Reset() {
 	c.mu.Lock()
-	c.backend = make(map[string]*DNSMsg, 100)
+	c.backend = make(map[string]*CacheItem, 4096)
 	c.mu.Unlock()
 }
 
