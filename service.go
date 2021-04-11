@@ -43,7 +43,7 @@ func (s *Service) Init(test bool) error {
 		MaxTTL:   86400,
 		MaxCount: 0,
 		mu:       new(sync.RWMutex),
-		backend:  make(map[string]*DNSMsg),
+		backend:  make(map[string]*CacheItem),
 	}
 
 	// init query log
@@ -149,10 +149,10 @@ func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 	var err error
 	var flag bool
 	var cKey string
-	var msg *DNSMsg
+	var msg *CacheItem
 	var resp *dns.Msg
 	var idx = s.config.Rand.Int()
-	var respChan = make(chan *DNSMsg, s.config.Concurrency)
+	var respChan = make(chan *CacheItem, s.config.Concurrency)
 	var group = s.getDomainForwarder(req.Question[0].Name)
 	var cnt = len(s.config.Forwarders[group])
 	var ctx, cancel = context.WithTimeout(context.Background(), s.client.Timeout)
@@ -214,7 +214,7 @@ func (s *Service) getDomainForwarder(domain string) string {
 	return ret
 }
 
-func (s *Service) getDnsRecord(ctx context.Context, req *dns.Msg, addr string) (*DNSMsg, error) {
+func (s *Service) getDnsRecord(ctx context.Context, req *dns.Msg, addr string) (*CacheItem, error) {
 	var resp, rtt, err = s.client.ExchangeContext(ctx, req, addr)
 	if nil == err {
 		var ttl = int64(rtt.Seconds())
@@ -225,7 +225,7 @@ func (s *Service) getDnsRecord(ctx context.Context, req *dns.Msg, addr string) (
 			ttl = s.cache.MaxTTL
 		}
 
-		var msg = &DNSMsg{
+		var msg = &CacheItem{
 			Msg:    resp,
 			Expire: time.Now().Unix() + ttl,
 		}
