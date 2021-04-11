@@ -25,28 +25,26 @@ type Cache struct {
 }
 
 // Get get query cache
-func (c *Cache) Get(key string) (*dns.Msg, bool) {
+func (c *Cache) Get(key string) (*dns.Msg, error) {
+	var err error
+	var msg *dns.Msg
+
 	c.mu.RLock()
-	msg, ok := c.backend[key]
+	if item, ok := c.backend[key]; ok {
+		msg = item.Msg.Copy()
+		if item.Expire > 0 && item.Expire < time.Now().Unix() {
+			err = ErrCacheExpire
+		}
+	} else {
+		err = ErrNotFound
+	}
 	c.mu.RUnlock()
-	if !ok {
-		return nil, ok
-	}
 
-	if msg.Expire > 0 && msg.Expire < time.Now().Unix() {
-		c.Remove(key)
-		return nil, false
-	}
-
-	return msg.Msg, true
+	return msg, err
 }
 
 // Set Set query cache
 func (c *Cache) Set(key string, msg *CacheItem) bool {
-	if c.Full() {
-		return false
-	}
-
 	c.mu.Lock()
 	c.backend[key] = msg
 	c.mu.Unlock()
@@ -61,10 +59,37 @@ func (c *Cache) Remove(key string) {
 	c.mu.Unlock()
 }
 
+// IsExpire check dns cache is expire
+func (c *Cache) IsExpire(key string) bool {
+	var flag bool
+
+	c.mu.RLock()
+	if item, ok := c.backend[key]; ok {
+		if item.Expire > 0 && item.Expire < time.Now().Unix() {
+			flag = true
+		}
+	}
+	c.mu.RUnlock()
+
+	return flag
+}
+
+func (c *Cache) GC() {
+	var expire = time.Now().Unix() - 86400
+
+	c.mu.Lock()
+	for k, v := range c.backend {
+		if v.Expire > 0 && v.Expire < expire {
+			delete(c.backend, k)
+		}
+	}
+	c.mu.Unlock()
+}
+
 // Reset reset dns query cache result
 func (c *Cache) Reset() {
 	c.mu.Lock()
-	c.backend = make(map[string]*CacheItem, 4096)
+	c.backend = make(map[string]*CacheItem, 10240)
 	c.mu.Unlock()
 }
 

@@ -11,6 +11,9 @@ var ErrNotFound = errors.New("cache key is not found")
 // ErrNotTypeAAA mapper domain no has TypeAAAA record
 var ErrNotTypeAAAA = errors.New("domain not TypeAAAA record")
 
+// ErrCacheExpire cache item expire
+var ErrCacheExpire = errors.New("cache item expire")
+
 // ErrCacheTimeout dns cache timeout
 var ErrCacheTimeout = errors.New("remote cache timeout")
 

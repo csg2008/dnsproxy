@@ -15,17 +15,22 @@ import (
 
 // Service DNS query service
 type Service struct {
-	Logger *Logger                      `label:"logger"`
-	client *dns.Client                  `label:"DNS query client"`
-	config *Config                      `label:"config manager"`
-	cache  *Cache                       `label:"dns query cache"`
-	ptr    []string                     `label:"dns name server ptr"`
-	mapper map[string]map[string]net.IP `label:"subdomain mapper to ip list"`
+	Logger     *Logger                      `label:"logger"`
+	client     *dns.Client                  `label:"DNS query client"`
+	config     *Config                      `label:"config manager"`
+	cache      *Cache                       `label:"dns query cache"`
+	ptr        []string                     `label:"dns name server ptr"`
+	chanExpire chan *dns.Msg                `label:"dns cache need update msg chan"`
+	chanItem   chan *CacheItem              `label:"dns query result item chain"`
+	mapper     map[string]map[string]net.IP `label:"subdomain mapper to ip list"`
 }
 
 // Init dns query service
 func (s *Service) Init(test bool) error {
 	var err error
+
+	s.chanExpire = make(chan *dns.Msg, 1024)
+	s.chanItem = make(chan *CacheItem, 1024)
 
 	// init dns proxy config
 	s.config, err = NewConfig(test)
@@ -117,6 +122,12 @@ func (s *Service) Init(test bool) error {
 	return nil
 }
 
+// Shutdown dns service
+func (s *Service) Shutdown() {
+	close(s.chanExpire)
+	close(s.chanItem)
+}
+
 // Reload config file and reset query cache
 func (s *Service) Reload() error {
 	return s.Init(false)
@@ -125,6 +136,47 @@ func (s *Service) Reload() error {
 // Reset query cache
 func (s *Service) Reset() {
 	s.cache.Reset()
+}
+
+// Run dns cache service
+func (s *Service) Run() error {
+	var err error
+	var cKey string
+	var idx, num int
+
+	go func() {
+		for req := range s.chanExpire {
+			cKey = req.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Question[0].Qtype), 10)
+			if s.cache.IsExpire(cKey) {
+				var group = s.getDomainForwarder(req.Question[0].Name)
+				var cnt = len(s.config.Forwarders[group])
+				var ctx, _ = context.WithTimeout(context.Background(), s.client.Timeout)
+
+				idx = (idx + 1) % cnt
+				var m, err = s.getDnsRecord(ctx, req, s.config.Forwarders[group][idx])
+				if nil == err {
+					s.chanItem <- m
+				} else if nil != err {
+					s.Logger.Write(LevelError, " [E] client  query %s error: %s\n", s.toJSON(req.Question), err.Error())
+				}
+			}
+		}
+	}()
+
+	go func() {
+		for req := range s.chanItem {
+			num++
+			cKey = req.Msg.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Msg.Question[0].Qtype), 10)
+			s.cache.Set(cKey, req)
+
+			if num >= 100 {
+				num = 0
+				s.cache.GC()
+			}
+		}
+	}()
+
+	return err
 }
 
 // Query dns request
@@ -138,6 +190,9 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 	var resp, err = s.getFromCache(req)
 	if err == nil && s.config.Logger.Access {
 		s.Logger.Write(LevelRaw, " [T] client %s query cache %s with result %s\n", src, s.toJSON(req.Question), s.toJSON(resp.Answer))
+	} else if ErrCacheExpire == err {
+		err = nil
+		s.chanExpire <- req
 	} else if ErrNotFound == err {
 		resp, err = s.getFromNet(src, req)
 	}
@@ -148,7 +203,6 @@ func (s *Service) Query(src string, req *dns.Msg) (*dns.Msg, error) {
 func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 	var err error
 	var flag bool
-	var cKey string
 	var msg *CacheItem
 	var resp *dns.Msg
 	var idx = s.config.Rand.Int()
@@ -180,11 +234,8 @@ func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 	case msg = <-respChan:
 		err = nil
 		resp = msg.Msg
-		if len(req.Question) > 0 {
-			cKey = req.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Question[0].Qtype), 10)
 
-			s.cache.Set(cKey, msg)
-		}
+		s.chanItem <- msg
 
 		if s.config.Logger.Access {
 			s.Logger.Write(LevelRaw, " [T] client %s query remote %s with result %s\n", src, s.toJSON(req.Question), s.toJSON(resp.Answer))
@@ -253,14 +304,9 @@ func (s *Service) getFromCache(req *dns.Msg) (*dns.Msg, error) {
 
 	if nil == resp || ErrNotFound == err {
 		var cKey = req.Question[0].String() + "|" + strconv.FormatUint(uint64(req.Question[0].Qtype), 10)
-		var msg, ok = s.cache.Get(cKey)
-		if ok && nil != msg {
-			resp = new(dns.Msg)
-			*resp = *msg
+		resp, err = s.cache.Get(cKey)
+		if nil != resp {
 			resp.Id = req.Id
-			err = nil
-		} else {
-			err = ErrNotFound
 		}
 	}
 

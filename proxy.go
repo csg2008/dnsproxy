@@ -90,6 +90,10 @@ func (p *Proxy) Run() error {
 			}
 		}
 
+		if err = p.service.Run(); nil != err {
+			return err
+		}
+
 		for k, v := range p.provider {
 			go func(net string, handle ReverseProxy) {
 				fmt.Println("proxy: starting ", net, " at socket ", p.service.config.Bind[net])
@@ -162,6 +166,8 @@ func (p *Proxy) shutdown() {
 	}
 
 	p.wg.Wait()
+	p.service.Shutdown()
+
 	close(p.interrupt)
 }
 
