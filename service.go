@@ -36,7 +36,8 @@ func (s *Service) Init(test bool) error {
 	// init dns client & cache
 	s.client = new(dns.Client)
 	s.client.Net = "udp"
-	s.client.Timeout = time.Millisecond * 400
+	s.client.UDPSize = dns.DefaultMsgSize * 2
+	s.client.Timeout = time.Millisecond * 600
 	s.cache = &Cache{
 		MinTTL:   600,
 		MaxTTL:   86400,
@@ -154,7 +155,7 @@ func (s *Service) getFromNet(src string, req *dns.Msg) (*dns.Msg, error) {
 	var respChan = make(chan *DNSMsg, s.config.Concurrency)
 	var group = s.getDomainForwarder(req.Question[0].Name)
 	var cnt = len(s.config.Forwarders[group])
-	var ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond*500)
+	var ctx, cancel = context.WithTimeout(context.Background(), s.client.Timeout)
 
 	defer func() {
 		close(respChan)
