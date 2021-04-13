@@ -150,12 +150,14 @@ func (s *Service) Run() error {
 			if s.cache.IsExpire(cKey) {
 				var group = s.getDomainForwarder(req.Question[0].Name)
 				var cnt = len(s.config.Forwarders[group])
-				var ctx, _ = context.WithTimeout(context.Background(), s.client.Timeout)
+				var ctx, _ = context.WithTimeout(context.Background(), s.client.Timeout*5)
 
 				idx = (idx + 1) % cnt
 				var m, err = s.getDnsRecord(ctx, req, s.config.Forwarders[group][idx])
 				if nil == err {
-					s.chanItem <- m
+					if len(m.Msg.Answer) > 0 {
+						s.chanItem <- m
+					}
 				} else if nil != err {
 					s.Logger.Write(LevelError, " [E] client  query %s error: %s\n", s.toJSON(req.Question), err.Error())
 				}

@@ -82,10 +82,10 @@ func NewConfig(test bool) (*Config, error) {
 		config.Forwarders = make(map[string][]string)
 	}
 	if _, ok := config.Forwarders["normal"]; !ok {
-		config.Forwarders["normal"] = []string{"223.5.5.5:53", "223.6.6.6:53", "119.29.29.29:53", "182.254.116.116:53", "101.226.4.6:53", "114.114.114.114:53", "114.114.115.115:53", "202.67.240.222:53", "203.80.96.10:53", "202.45.84.58:53"}
+		config.Forwarders["normal"] = []string{"119.29.29.29:53"}
 	}
 	if _, ok := config.Forwarders["gfw"]; !ok {
-		config.Forwarders["gfw"] = []string{"74.82.42.42:53", "107.150.40.234:53", "162.211.64.20:53", "50.116.23.211:53", "50.116.40.226:53", "37.235.1.174:53", "37.235.1.177:53", "8.8.8.8:53", "8.8.4.4:53", "208.67.222.222:53", "208.67.220.220:53", "8.26.56.26:53", "84.200.69.80:53"}
+		config.Forwarders["gfw"] = []string{"1.1.1.1:53", "80.80.80.80:53", "80.80.81.81:53", "8.8.8.8:53", "8.8.4.4:53"}
 	}
 	if nil == config.Rules || 0 == len(config.Rules) {
 		config.Rules = map[string]string{
